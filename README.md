@@ -18,25 +18,6 @@ Modern aerospace operations rely on condition-based predictive maintenance to pr
 
 ---
 
-## Repository Architecture
-predictive-maintenance-turbofan-rul/
-├── assets/                  # Visual artifacts and exported SHAP summary plots
-├── data/
-│   ├── raw/                 # Unformatted C-MAPSS text files (train_FD001, test_FD001, RUL_FD001)
-│   └── processed/           # Filtered feature matrices with rolling statistics
-├── models/                  # Serialized binary model artifacts (.joblib)
-├── src/
-│   ├── data_loader.py       # Raw ingestion, schema mapping, zero-variance channel pruning
-│   ├── features.py          # 10-cycle rolling aggregations and piecewise RUL clipping
-│   ├── train.py             # 5-Fold GroupKFold cross-validation and production training
-│   ├── evaluate_test.py     # Out-of-sample evaluation on hidden test datasets
-│   ├── explain.py           # Tree-SHAP interpretability and feature ranking generation
-│   └── predict.py           # Real-time CLI inference engine and safety alert system
-├── PROJECT_LOG.md           # Granular engineering decision log and mathematical rationales
-└── README.md                # Master repository documentation
-
----
-
 ## Non-Technical Overview
 
 1. **Objective:** Replaces fixed-interval servicing with dynamic sensor monitoring to predict exact remaining flight cycles before component failure occurs.
