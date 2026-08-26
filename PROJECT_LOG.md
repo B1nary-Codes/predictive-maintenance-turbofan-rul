@@ -103,4 +103,4 @@ Provides an unweighted linear measure of average prediction error across all fli
 | Exp ID | Model Architecture | Feature Matrix | Validation RMSE | Validation MAE | Key Takeaway / Technical Decision |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **EXP-01** | Random Forest (100 Trees) | Active Sensors + 10-cycle Rolling Stats | 19.33 cycles | 13.87 cycles | Solid baseline. Stable cross-validation variance ($\pm 0.49$). |
-| **EXP-02** | XGBoost Regressor | Active Sensors + 10-cycle Rolling Stats | TBD | TBD | Testing sequential residual error optimization vs. bagging. |
+| **EXP-02** | XGBoost Regressor | Active Sensors + 10-cycle Rolling Stats | 18.61 cycles | 13.54 cycles | **Winner.** Sequential residual fitting reduced RMSE by ~0.72 cycles. |
