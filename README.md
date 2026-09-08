@@ -40,13 +40,14 @@ predictive-maintenance-turbofan-rul/
 
 ```bash
 # Setup environment
-git clone [https://github.com/B1nary-Codes/predictive-maintenance-turbofan-rul.git](https://github.com/B1nary-Codes/predictive-maintenance-turbofan-rul.git)
+git clone https://github.com/B1nary-Codes/predictive-maintenance-turbofan-rul.git
 cd predictive-maintenance-turbofan-rul
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Run full pipeline & CLI inference
+# Download raw data & run full pipeline
+python src/download_data.py
 python src/data_loader.py
 python src/features.py
 python src/train.py
