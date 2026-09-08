@@ -23,18 +23,30 @@ Evaluated on out-of-sample test engines (`test_FD001.txt`) using the final recor
 
 ```text
 predictive-maintenance-turbofan-rul/
-├── assets/             # Visual outputs and SHAP plots
-├── data/               # Raw and processed telemetry
-├── models/             # Exported XGBoost model weights
+├── assets/
+│   └── .gitkeep
+├── data/
+│   ├── raw/
+│   │   └── .gitkeep
+│   └── processed/
+│       └── .gitkeep
+├── models/
+│   └── .gitkeep
 ├── src/
-│   ├── data_loader.py  # Ingestion and channel pruning
-│   ├── features.py     # Rolling aggregations and target clipping
-│   ├── train.py        # GroupKFold training loop
-│   ├── evaluate_test.py# Out-of-sample test set evaluation
-│   ├── explain.py      # SHAP feature importance scripts
-│   └── predict.py      # CLI inference tool
-├── PROJECT_LOG.md      # Architectural log
-└── README.md
+│   ├── __init__.py          # Exposed imports & versioning
+│   ├── download_data.py     # NASA C-MAPSS dataset downloader
+│   ├── data_loader.py       # Raw file ingestion & schema definition
+│   ├── features.py          # Rolling aggregations & piecewise targets
+│   ├── train.py             # GroupKFold XGBoost training loop
+│   ├── evaluate_test.py     # Final-cycle out-of-sample test evaluation
+│   ├── explain.py           # Tree-SHAP interpretability generation
+│   └── predict.py           # CLI inference tool with risk tiers
+├── .gitignore               # Excludes python artifacts & raw dataset files
+├── Engineering_Report.md    # Deep-dive operational & technical deliverable
+├── LICENSE                  # MIT License
+├── PROJECT_LOG.md           # Engineering log & experiment tracking
+├── README.md                # Main portfolio showcase & quickstart
+└── requirements.txt         # Explicit dependency tracking
 ```
 ## Quickstart
 
