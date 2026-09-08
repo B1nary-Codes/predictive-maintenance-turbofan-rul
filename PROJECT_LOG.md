@@ -1,103 +1,55 @@
-# NASA C-MAPSS Predictive Maintenance: Engineering Log
+# Engineering Log: NASA C-MAPSS RUL Prediction
 
-## Technical Architectural Log
+## System Architecture Log
 
-### Phase 1: Infrastructure & Software Architecture
-Developing industrial machine learning systems requires strict decoupling between data processing, feature engineering, and model training routines. Mixing data pre-processing scripts directly into model training loops leads to code duplication, testing difficulty, and subtle validation leakage. 
+### 01. Code Base Decoupling
+To keep processing and training modular, code is isolated into single-responsibility scripts under `src/`:
+* `data_loader.py` — Schema definition and ingestion
+* `features.py` — Window statistics and target capping
+* `train.py` — Model training with grouped cross-validation
+* `evaluate_test.py` — Out-of-sample evaluation on final engine cycles
+* `explain.py` — SHAP feature attribution
+* `predict.py` — CLI for inference and risk classification
 
-We established a modular repository layout (`src/data_loader.py`, `src/features.py`, `src/train.py`, `src/evaluate_test.py`, `src/explain.py`, `src/predict.py`). Using relative `Path` definitions via Python's `pathlib` ensures cross-platform portability across Linux Codespaces containers and local execution environments.
+All file paths use Python's `pathlib` for cross-platform execution.
 
-### Phase 2: Ingestion & Schema Enforcement
-The raw NASA C-MAPSS dataset consists of unformatted, space-delimited text files lacking headers. To establish structured inputs, we defined a 26-column schema mapping operational settings and 21 thermodynamic sensor channels.
+### 02. Data Ingestion & Schema
+Mapped 26 unformatted space-delimited text columns into 3 operational settings and 21 thermodynamic sensor channels (`FD001`).
 
-### Phase 3: Variance Profiling & Low-Variance Channel Pruning
-Standard deviation profiling revealed seven non-informative channels ($\sigma < 10^{-4}$): `setting_3`, `sensor_1`, `sensor_5`, `sensor_10`, `sensor_16`, `sensor_18`, and `sensor_19`. In physical turbines, these parameters reflect locked control variables or uncalibrated channels that remain static throughout all 20,631 cycles.
+### 03. Channel Pruning
+Standard deviation profiling identified 7 non-informative static channels ($\sigma < 10^{-4}$): `setting_3`, `sensor_1`, `sensor_5`, `sensor_10`, `sensor_16`, `sensor_18`, and `sensor_19`. Dropping these reduced matrix width from 26 to 19 columns without removing dynamic wear signals.
 
-Retaining static channels increases matrix memory overhead and injects non-informative dimensions into decision tree splits. Dropping these zero-variance attributes reduced matrix width from 26 to 19 clean features without stripping dynamic degradation signals.
+### 04. Piecewise Target Clipping
+Calculated raw target values as $RUL_{i,t} = T_{i,\text{max}} - t$ grouped by `unit_nr`. Applied piecewise linear capping at 125 cycles ($RUL = \min(125, T_{\text{max}} - t)$) to prevent early-life predictions from fitting non-existent wear on healthy engines.
 
-### Phase 4: Degradation Target Construction & Piecewise Target Clipping
-We calculated initial Remaining Useful Life ($RUL_{i,t} = T_{i,\text{max}} - t$) grouped by engine unit (`unit_nr`). 
+### 05. Time-Series Feature Construction
+Engineered 10-cycle rolling aggregations for active sensor streams grouped strictly by `unit_nr`:
+* **Rolling Mean:** Filters high-frequency operational noise to capture sensor drift.
+* **Rolling Std Dev:** Captures physical vibration and thermal variance near failure boundaries.
 
-In real physical systems, turbofans suffer negligible wear during initial operating cycles. A component at cycle 10 exhibits identical physical integrity to cycle 40. Linear target structures ($RUL = T_{\text{max}} - t$) force models to attempt predicting structural degradation during early healthy states where sensor signals remain completely static.
+Grouping by unit ID ensures rolling windows do not cross engine boundaries.
 
-To align training targets with physical wear dynamics, we implemented a piecewise linear target capped at $RUL = 125$ cycles:
+### 06. Validation Strategy (`GroupKFold`)
+Standard random $K$-fold causes temporal data leakage across nearby cycles of the same engine. Evaluated models using 5-fold `GroupKFold` split by `unit_nr`, isolating full engine lifespans to test true out-of-sample generalization.
 
-$$RUL_{\text{piecewise}} = \min(125, T_{i,\text{max}} - t)$$
+### 07. Out-of-Sample Test Evaluation
+Tested models on `test_FD001.txt` using only the final recorded flight cycle per engine (`groupby("unit_nr").last()`) against ground truth targets (`RUL_FD001.txt`).
 
-Capping target values prevents the regression algorithm from attempting to separate indistinguishable healthy operational states, significantly sharpening model convergence near true degradation inflection points.
+### 08. Experiment Tracking
 
-### Phase 5: Time-Series Feature Engineering & Signal Smoothing
-Raw sensor streams contain high-frequency noise induced by transient operational environmental changes. To separate momentary sensor fluctuations from structural component wear, we engineered two distinct time-series features per active sensor using a 10-cycle window:
-
-$$\text{Rolling Mean}_{i,t} = \frac{1}{W} \sum_{k=0}^{W-1} S_{i, t-k}$$
-
-$$\text{Rolling Std}_{i,t} = \sqrt{\frac{1}{W-1} \sum_{k=0}^{W-1} (S_{i, t-k} - \bar{S}_{i,t})^2}$$
-
-* **Rolling Mean:** Acts as a low-pass filter to reveal long-term thermodynamic drift.
-* **Rolling Standard Deviation:** Measures physical degradation instability, capturing escalating sensor jitter as turbofan components lose structural integrity near failure.
-* **Grouping Constraints:** Computations are grouped strictly by `unit_nr` (`groupby("unit_nr")`). This prevents rolling calculations at cycle 1 of Engine #2 from pulling historical sensor values from the tail end of Engine #1.
-
-### Phase 6: Validation Strategy & Group Cross-Validation
-Standard random $K$-fold cross-validation is strictly invalid for time-series predictive maintenance. Shuffling rows at random places cycle $t$ of an engine in the training set and cycle $t+1$ of that exact same engine in the validation set. Decision trees can easily memorize individual engine signatures, creating unrealistically optimistic validation metrics that fail in real-world deployment.
-
-We implemented `GroupKFold` cross-validation grouped by `unit_nr`. This structure guarantees that all operational cycles of a given engine are assigned exclusively to either the training split or the validation split per fold. Evaluating out-of-sample prediction metrics exclusively on unseen engine units accurately simulates real-world production deployment on newly deployed aircraft.
-
-### Phase 7: Metric Evaluation Framework
-* **Root Mean Squared Error (RMSE):**
-
-$$\text{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i)^2}$$
-
-Squaring residual errors penalizes large prediction errors severely. Overestimating remaining useful life on a degrading engine can lead to catastrophic component failure. RMSE acts as our primary metric to heavily penalize over-predictions near engine failure boundaries.
-
-* **Mean Absolute Error (MAE):**
-
-$$\text{MAE} = \frac{1}{N} \sum_{i=1}^N |y_i - \hat{y}_i|$$
-
-Provides an unweighted linear measure of average prediction error across all flight cycles.
-
-### Phase 8: Out-of-Sample Test Evaluation & Operational Generalization
-In actual flight operations, predictive maintenance models are queried on the *current* operational state of active engines. Unlike training files (which run continuously until component breakdown), C-MAPSS test files (`test_FD001.txt`) truncate engine runs at an arbitrary point prior to failure.
-
-We engineered `src/evaluate_test.py` to extract only the final recorded flight cycle (`groupby("unit_nr").last()`) per test engine. Evaluating predictions strictly against ground-truth targets (`RUL_FD001.txt`) yielded:
-* **Test RMSE:** 18.12 cycles
-* **Test MAE:** 12.76 cycles
-
-Because out-of-sample test RMSE (18.12) closely tracks internal GroupKFold CV RMSE (18.61), we confirm the modeling pipeline suffers zero overfitting and generalizes reliably across operational fleets.
-
-### Phase 9: Experiment Tracking Log
-
-| Exp ID | Model Architecture | Feature Matrix | Validation RMSE | Validation MAE | Key Takeaway / Technical Decision |
+| Exp ID | Model Architecture | Features | Val RMSE | Val MAE | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **EXP-01** | Random Forest (100 Trees) | Active Sensors + 10-cycle Rolling Stats | 19.33 cycles | 13.87 cycles | Solid baseline. Low CV variance ($\pm 0.49$). |
-| **EXP-02** | XGBoost Regressor | Active Sensors + 10-cycle Rolling Stats | 18.61 cycles | 13.54 cycles | Sequential error fitting outperformed bagging by ~0.72 RMSE. |
-| **EXP-03** | XGBoost (Final Evaluation) | Final Recorded Cycle per Test Engine | **18.12 cycles** | **12.76 cycles** | Out-of-sample test evaluation. Confirmed zero overfitting. |
+| **EXP-01** | Random Forest (100 Trees) | Active Sensors + 10-cycle Rolling Stats | 19.33 | 13.87 | Baseline model ($\pm 0.49$ CV std). |
+| **EXP-02** | XGBoost Regressor | Active Sensors + 10-cycle Rolling Stats | 18.61 | 13.54 | Residual fitting improved RMSE by ~0.72 cycles. |
+| **EXP-03** | XGBoost (Final Production) | Final Cycle per Test Engine | **18.12** | **12.76** | Evaluated on out-of-sample test set. |
 
-### Phase 10: Model Interpretability & Explainable AI (XAI)
-To validate that the model learned true thermodynamic degradation dynamics rather than dataset artifacts, we engineered `src/explain.py` using Tree-SHAP (SHapley Additive exPlanations).
+### 09. Model Interpretability (Tree-SHAP)
+Extracted global feature attributions using Tree-SHAP:
+* Moving averages of high-pressure turbine outlet temperature (`sensor_4`), discharge pressure (`sensor_11`), and bypass ratio (`sensor_15`) drive over 60% of model decisions.
+* Rolling standard deviation features (`_mov_std`) show positive SHAP values in late-stage engine life, confirming the model uses signal jitter as an indicator of imminent failure.
 
-* **Primary Sensor Drivers:** Moving averages of high-pressure turbine outlet temperatures (`sensor_4_mov_avg`) drive **38.7%** of overall prediction decisions. Combined with static pressure (`sensor_11_mov_avg`) and bypass ratios (`sensor_15_mov_avg`), the top three rolling features account for **>64%** of feature importance.
-* **Signal Instability:** Rolling standard deviation features (`_mov_std`) show positive SHAP impact during late engine lifespans, proving that the model actively uses physical vibration/thermal instability to detect late-stage wear.
-
-### Phase 11: Real-Time CLI Inference Pipeline & Alert Schema
-To transition from offline batch modeling to an active production tool, we implemented `src/predict.py`.
-
-* **Global Feature Processing & Schema Enforcement:** Ingests raw telemetry streams, executes global variance pruning and 10-cycle rolling aggregations across active engines, and enforces exact column order matching `model.feature_names_in_` to avoid missing-sensor exceptions on isolated engine runs.
-* **Operational Risk Rules:** Automatically evaluates predicted RUL against actionable maintenance safety thresholds:
-  * $RUL \le 20$: **CRITICAL (Immediate Maintenance Required)**
-  * $20 < RUL \le 50$: **WARNING (Schedule Inspection)**
-  * $RUL > 50$: **HEALTHY (Normal Operations)**
-
----
-
-## Architecture Matrix Summary
-
-| Phase | Input Shape | Output Shape | Primary Operation | Key Module |
-| :--- | :--- | :--- | :--- | :--- |
-| **01. Ingestion** | Raw text file | `(20631, 26)` | Schema Mapping & Parsing | `src/data_loader.py` |
-| **02. Pruning** | `(20631, 26)` | `(20631, 19)` | Variance Filtering ($\sigma < 10^{-4}$) | `src/data_loader.py` |
-| **03. RUL Target** | `(20631, 19)` | `(20631, 20)` | Grouped Max Cycle Calculation | `src/data_loader.py` |
-| **04. Feature Eng.** | `(20631, 20)` | `(20631, 51)` | Rolling Stats + Piecewise RUL Clipping | `src/features.py` |
-| **05. Cross-Val** | `(20631, 51)` | Splits by `unit_nr` | 5-Fold GroupKFold Engine Isolation | `src/train.py` |
-| **06. Test Eval** | Test text files | `(100, 1)` | Out-of-sample evaluation on final engine cycle | `src/evaluate_test.py` |
-| **07. Explainability** | Processed Matrix | `(20631, 47)` | Tree-SHAP Attribution & Feature Ranking | `src/explain.py` |
-| **08. Production Inference**| Raw Engine Stream | `(1, 1)` | Single-engine feature alignment & risk alerting | `src/predict.py` |
+### 10. CLI Inference & Thresholding
+`src/predict.py` ingests engine logs, applies feature transformations, matches column ordering against `model.feature_names_in_`, and maps RUL predictions to operational risk tiers:
+* $RUL \le 20$: **CRITICAL**
+* $20 < RUL \le 50$: **WARNING**
+* $RUL > 50$: **HEALTHY**
