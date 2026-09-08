@@ -1,6 +1,6 @@
 # NASA C-MAPSS Predictive Maintenance: Engineering Log
 
-## Plain-English Executive Summary (The "Explain Like I'm 5" Guide)
+## Plain-English Executive Summary 
 
 **1. The Big Goal**
 * **The Analogy:** Imagine driving a car where the fuel light doesn't tell you how much gas is left—it just tells you when you're completely stranded on the highway. That is bad. 
